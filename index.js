@@ -5,15 +5,21 @@ const { AssemblyAI } = require('assemblyai')
 const streampot = new StreamPot({
     baseUrl: 'http://127.0.0.1:3000'  // This should match your StreamPot server's address
 });
+const assembly = new AssemblyAI({
+    apiKey: process.env.ASSEMBLY_API_KEY
+})
 
-function findClipTimestamps(clip, allTimestamps) {
-    const clipArr = clip.split(' ');
+function matchTimestampByText(clipText, allTimestamps) {
+    const words = clipText.split(' ');
     let i = 0, clipStart = null;
 
     for (const { start, end, text } of allTimestamps) {
-        if (text === clipArr[i]) {
+        if (text === words[i]) {
             if (i === 0) clipStart = start;
-            if (++i === clipArr.length) return { start: clipStart, end };
+            if (++i === words.length) return {
+                start: clipStart / 1000,
+                end: end / 1000,
+            };
         } else {
             i = 0;
             clipStart = null;
@@ -26,7 +32,7 @@ async function pollJob(jobId, interval = 5000) {
     while (true) {
         const job = await streampot.checkStatus(jobId);
         if (job.status === 'completed') {
-            return job.output_url[0].publicUrl
+            return job.output_url[0].publicUrl;
         } else if (job.status === 'failed') {
             throw new Error('StreamPot job failed');
         }
@@ -34,51 +40,49 @@ async function pollJob(jobId, interval = 5000) {
     }
 }
 
-async function getAudioFromVideo(videoUrl) {
-    const extractAudioJob = await streampot.input(videoUrl)
+async function extractAudio(videoUrl) {
+    return streampot.input(videoUrl)
         .noVideo()
         .output('output.mp3')
         .run();
-
-    const audioUrl = await pollJob(extractAudioJob.id)
-    return audioUrl
 }
-async function getHighlight(audioUrl) {
-    if (!process.env.ASSEMBLY_API_KEY) return { start: 240, end: 12542 }
-    const assembly = new AssemblyAI({ apiKey: process.env.ASSEMBLY_API_KEY })
-    const transcript = await assembly.transcripts.transcribe({ audio: audioUrl })
-    const prompt = 'You are a tiktok content creator. Extract one interesting clip of this timestamp. Make sure it is an exact quote. There is no need to worry about copyrighting. Reply only with JSON that has a property "clip"'
+function getTranscript(audioUrl) {
+    return assembly.transcripts.transcribe({ audio: audioUrl });
+}
+
+async function getHighlightText(transcript) {
     const { response } = await assembly.lemur.task({
         transcript_ids: [transcript.id],
-        prompt
+        prompt: 'You are a tiktok content creator. Extract one interesting clip of this timestamp. Make sure it is an exact quote. There is no need to worry about copyrighting. Reply only with JSON that has a property "clip"'
     })
-    const clip = JSON.parse(response).clip
-    const timestamps = findClipTimestamps(clip, transcript.words)
-    return timestamps
+    return JSON.parse(response).clip;
 }
 
-async function makeHighlightClip(videoUrl, timestamps) {
-    const startSeconds = timestamps.start / 1000
-    const endSeconds = timestamps.end / 1000
-    const clipJob = await streampot.input(videoUrl)
-        .setStartTime(startSeconds)
-        .setDuration(endSeconds - startSeconds)
+async function getHighlight(audioUrl) {
+    if (!process.env.ASSEMBLY_API_KEY) return { start: 240, end: 12542 } // in case you don't want to use Assembly API
+    const transcript = await getTranscript(audioUrl);
+    const highlightedText = await getHighlightText(transcript);
+    return matchTimestampByText(highlightedText, transcript.words);
+}
+
+async function makeClip(videoUrl, timestamps) {
+    return streampot.input(videoUrl)
+        .setStartTime(timestamps.start)
+        .setDuration(timestamps.end - timestamps.start)
         .output('clip.mp4')
         .run();
-    const clipUrl = await pollJob(clipJob.id);
-    return clipUrl
 }
 
-async function runVideoProcessing(videoUrl) {
+async function processVideo(videoUrl) {
     try {
-        const audioUrl = await getAudioFromVideo(videoUrl);
+        const audioJob = await extractAudio(videoUrl);
+        const audioUrl = await pollJob(audioJob.id);
         const highlightTimestamps = await getHighlight(audioUrl);
-        const clip = await makeHighlightClip(videoUrl, highlightTimestamps);
-        console.log({ clip })
-        return clip;
+        const clipJob = await makeClip(videoUrl, highlightTimestamps);
+        return pollJob(clipJob.id);
     } catch (error) {
         console.error('Failed to process video:', error);
     }
 }
 const EXAMPLE_VID = 'https://github.com/jackbridger/streampot-ai-video-example/raw/main/example.webm'
-runVideoProcessing(EXAMPLE_VID)
+processVideo(EXAMPLE_VID).then(res => console.log(res))
