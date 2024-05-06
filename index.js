@@ -5,7 +5,6 @@ const { AssemblyAI } = require('assemblyai')
 const streampot = new StreamPot({
     baseUrl: 'http://127.0.0.1:3000'  // This should match your StreamPot server's address
 });
-console.log(streampot)
 
 function findClipTimestamps(clip, allTimestamps) {
     const clipArr = clip.split(' ');
@@ -40,7 +39,6 @@ async function getAudioFromVideo(videoUrl) {
         .noVideo()
         .output('output.mp3')
         .run();
-    console.log({ extractAudioJob })
 
     const audioUrl = await pollJob(extractAudioJob.id)
     return audioUrl
@@ -73,11 +71,8 @@ async function makeHighlightClip(videoUrl, timestamps) {
 
 async function runVideoProcessing(videoUrl) {
     try {
-        console.log('running video processing...')
         const audioUrl = await getAudioFromVideo(videoUrl);
-        console.log({ audioUrl })
         const highlightTimestamps = await getHighlight(audioUrl);
-        console.log({ highlightTimestamps })
         const clip = await makeHighlightClip(videoUrl, highlightTimestamps);
         console.log({ clip })
         return clip;
@@ -85,5 +80,5 @@ async function runVideoProcessing(videoUrl) {
         console.error('Failed to process video:', error);
     }
 }
-
+const EXAMPLE_VID = 'https://github.com/jackbridger/streampot-ai-video-example/raw/main/example.webm'
 runVideoProcessing(EXAMPLE_VID)
