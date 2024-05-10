@@ -1,6 +1,7 @@
 require('dotenv').config();
 const StreamPot = require('@streampot/client');
 const { AssemblyAI } = require('assemblyai')
+const FALLBACK_CLIP_TIMESTAMPS = { start: 240, end: 12542 } // in case you don't have an assembly AI key
 
 const streampot = new StreamPot({
     baseUrl: 'http://127.0.0.1:3000'  // This should match your StreamPot server's address
@@ -28,12 +29,13 @@ function matchTimestampByText(clipText, allTimestamps) {
     return null;
 }
 
-async function pollJob(jobId, interval = 5000) {
+async function pollStreampotJob(startJobFunction, interval = 5000) {
+    const job = await startJobFunction();
     while (true) {
-        const job = await streampot.checkStatus(jobId);
-        if (job.status === 'completed') {
-            return job.output_url[0].publicUrl;
-        } else if (job.status === 'failed') {
+        const status = await streampot.checkStatus(job.id);
+        if (status.status === 'completed') {
+            return status.output_url[0].publicUrl;
+        } else if (status.status === 'failed') {
             throw new Error('StreamPot job failed');
         }
         await new Promise(resolve => setTimeout(resolve, interval));
@@ -59,7 +61,7 @@ async function getHighlightText(transcript) {
 }
 
 async function getHighlight(audioUrl) {
-    if (!process.env.ASSEMBLY_API_KEY) return { start: 240, end: 12542 } // in case you don't want to use Assembly API
+    if (!process.env.ASSEMBLY_API_KEY) return FALLBACK_CLIP_TIMESTAMPS
     const transcript = await getTranscript(audioUrl);
     const highlightedText = await getHighlightText(transcript);
     return matchTimestampByText(highlightedText, transcript.words);
@@ -75,11 +77,9 @@ async function makeClip(videoUrl, timestamps) {
 
 async function processVideo(videoUrl) {
     try {
-        const audioJob = await extractAudio(videoUrl);
-        const audioUrl = await pollJob(audioJob.id);
+        const audioUrl = await pollStreampotJob(() => extractAudio(videoUrl))
         const highlightTimestamps = await getHighlight(audioUrl);
-        const clipJob = await makeClip(videoUrl, highlightTimestamps);
-        return pollJob(clipJob.id);
+        return pollStreampotJob(() => makeClip(videoUrl, highlightTimestamps))
     } catch (error) {
         console.error('Failed to process video:', error);
     }
