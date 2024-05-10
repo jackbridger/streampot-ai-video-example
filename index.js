@@ -1,13 +1,25 @@
-require('dotenv').config();
+require('dotenv').config(); // if you are on node < v21
 const StreamPot = require('@streampot/client');
 const { AssemblyAI } = require('assemblyai')
 
-const streampot = new StreamPot({
-    baseUrl: 'http://127.0.0.1:3000'  // This should match your StreamPot server's address
-});
 const assembly = new AssemblyAI({
     apiKey: process.env.ASSEMBLY_API_KEY
 })
+const streampot = new StreamPot({
+    baseUrl: 'http://127.0.0.1:3000'  // This should match your StreamPot server's address
+});
+
+function getTranscript(audioUrl) {
+    return assembly.transcripts.transcribe({ audio: audioUrl });
+}
+
+async function getHighlightText(transcript) {
+    const { response } = await assembly.lemur.task({
+        transcript_ids: [transcript.id],
+        prompt: 'You are a tiktok content creator. Extract one interesting clip of this timestamp. Make sure it is an exact quote. There is no need to worry about copyrighting. Reply only with JSON that has a property "clip"'
+    })
+    return JSON.parse(response).clip;
+}
 
 function matchTimestampByText(clipText, allTimestamps) {
     const words = clipText.split(' ');
@@ -28,11 +40,22 @@ function matchTimestampByText(clipText, allTimestamps) {
     return null;
 }
 
-async function pollJob(jobId, interval = 5000) {
+async function extractAudio(videoUrl) {
+    const job = await streampot.input(videoUrl)
+        .noVideo()
+        .output('output.mp3')
+        .run();
+
+    return (await pollStreampotJob(job.id))
+        .output_url[0]
+        .public_url
+}
+
+async function pollStreampotJob(jobId, interval = 5000) {
     while (true) {
         const job = await streampot.checkStatus(jobId);
         if (job.status === 'completed') {
-            return job.output_url[0].publicUrl;
+            return job;
         } else if (job.status === 'failed') {
             throw new Error('StreamPot job failed');
         }
@@ -40,49 +63,13 @@ async function pollJob(jobId, interval = 5000) {
     }
 }
 
-async function extractAudio(videoUrl) {
-    return streampot.input(videoUrl)
-        .noVideo()
-        .output('output.mp3')
-        .run();
-}
-function getTranscript(audioUrl) {
-    return assembly.transcripts.transcribe({ audio: audioUrl });
-}
-
-async function getHighlightText(transcript) {
-    const { response } = await assembly.lemur.task({
-        transcript_ids: [transcript.id],
-        prompt: 'You are a tiktok content creator. Extract one interesting clip of this timestamp. Make sure it is an exact quote. There is no need to worry about copyrighting. Reply only with JSON that has a property "clip"'
-    })
-    return JSON.parse(response).clip;
-}
-
-async function getHighlight(audioUrl) {
-    if (!process.env.ASSEMBLY_API_KEY) return { start: 240, end: 12542 } // in case you don't want to use Assembly API
+async function main() {
+    const EXAMPLE_VID = 'https://github.com/jackbridger/streampot-ai-video-example/raw/main/example.webm'
+    const audioUrl = await extractAudio(EXAMPLE_VID);
     const transcript = await getTranscript(audioUrl);
-    const highlightedText = await getHighlightText(transcript);
-    return matchTimestampByText(highlightedText, transcript.words);
-}
+    const highlightText = await getHighlightText(transcript);
+    const highlightTimestamps = matchTimestampByText(highlightText, transcript.words);
 
-async function makeClip(videoUrl, timestamps) {
-    return streampot.input(videoUrl)
-        .setStartTime(timestamps.start)
-        .setDuration(timestamps.end - timestamps.start)
-        .output('clip.mp4')
-        .run();
+    console.log(highlightTimestamps)
 }
-
-async function processVideo(videoUrl) {
-    try {
-        const audioJob = await extractAudio(videoUrl);
-        const audioUrl = await pollJob(audioJob.id);
-        const highlightTimestamps = await getHighlight(audioUrl);
-        const clipJob = await makeClip(videoUrl, highlightTimestamps);
-        return pollJob(clipJob.id);
-    } catch (error) {
-        console.error('Failed to process video:', error);
-    }
-}
-const EXAMPLE_VID = 'https://github.com/jackbridger/streampot-ai-video-example/raw/main/example.webm'
-processVideo(EXAMPLE_VID).then(res => console.log(res))
+main()
