@@ -66,7 +66,7 @@ async function extractAudio(videoUrl) {
 
     return (await pollStreampotJob(job.id))
         .output_url[0]
-        .publicUrl
+        .public_url
 }
 /**
  * Transcribes audio using assemblyai and returns an assemblyai object
@@ -103,7 +103,7 @@ async function makeClip(videoUrl, timestamps) {
 
     return (await pollStreampotJob(job.id))
         .output_url[0]
-        .publicUrl;
+        .public_url;
 }
 
 async function main() {

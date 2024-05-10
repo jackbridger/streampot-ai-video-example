@@ -12,7 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@streampot/client": "^0.0.6",
+    "@streampot/client": "^0.0.7",
     "assemblyai": "^4.4.2",
     "dotenv": "^16.4.5"
   }
