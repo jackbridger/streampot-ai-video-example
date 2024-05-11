@@ -152,7 +152,7 @@ async function pollJob(jobId, interval = 5000) {
     while (true) {
         const job = await streampot.checkStatus(jobId);
         if (job.status === 'completed') {
-            return job.output_url[0].publicUrl
+            return job.output_url[0].public_url
         } else if (job.status === 'failed') {
             throw new Error('StreamPot job failed');
         }

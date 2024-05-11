@@ -5,13 +5,14 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "streampot-server": "docker compose up",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@streampot/client": "^0.0.6",
+    "@streampot/client": "^0.0.7",
     "assemblyai": "^4.4.2",
     "dotenv": "^16.4.5"
   }
